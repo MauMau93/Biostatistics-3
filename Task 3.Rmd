@@ -1,0 +1,491 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(lme4)
+library(nlme)
+library(tidyverse)
+library(lattice)
+```
+
+
+## Exercise 2
+
+```{r}
+data(Oxide)
+head(Oxide)
+glimpse(Oxide)
+summary(Oxide)
+```
+
+In this exercise there is one main objective: we want to find out whether there are systematic differences between the sources (1,2 and 3), while expecting that there will be variation in thickness between the sites (1,2 and 3) too.  So the data is composed by 72 individuals, for which they have been measured a response variable: thickness.
+
+So "Thickness" is a continuous variable, and will be our response variable.
+Then, we have 4 categorical variables to deal with. Treating them as fixed or random effect is a matter of answerying to our specifical experimental design, and thus, its designation will always be controversial.
+
+
+"Source": We want to know the difference between means from both sources: we want to know if there are systematic differences between the two sources from which the wafers come from. As we are trying to generalize by doing inference about the two sources, and we care about the sources specifically, we can treat it as a fixed effect.
+
+"Site": We have to treat this variable as a fixed effect. This is because we are not interested in doing any inference about the sites and how they affect the difference in mean, but we want to account for the fact that Waffers coming from the same site will be different from the waffers in another site.
+
+"Wafer" and "Lot": We have three different kind of wafers, and it is arguable if we should use this variable as a random effect or as a fixed effect. Given that, according to what is stated, we  care about the wafers and lots only as representative of the total population, we will treat them as random effects. This way, we will be able to capture the variability arising from the difference between wafers and lots, as waffers that are the same and waffer are more similar between themselves, in comparison with other wafers and the same happens with lots.
+
+part b)
+
+Now, it is time to write a brief equation to characterize this model.
+In this case, we are not adding any interaction in the model, as we do not have any explanatory variable that is continuous, and we would lose a lot of interpretbility by adding an interaction between two factors.
+
+Then, as it was stated before, we will use two factors as fixed effects and two other categorical variables as random effects.  
+
+$$
+Thickness_i = \beta_0 + \beta_1*Source_i + \beta_2*Site_i + Lot_i*\mu_1 + Wafer_i * \mu_2 + \epsilon_i
+$$
+, with the following distributions:
+
+$$
+\mu_1\sim N(0,\sigma_1^2)\\
+\mu_1\sim N(0,\sigma_2^2)\\
+\epsilon_i\sim N(0,\sigma^2)\\
+$$
+Part c)
+
+First, let´s plot the dataset to check the observations and their behaviour in the different levels of factors.
+
+```{r}
+plot(Oxide)
+```
+By first checking the plot, we can say that there is variability in thickness between waffers but not within waffers that much.
+
+Now, let´s take a quick glance at the distribution of the waffer thickness, given the different levels. First I will do a one-by-one analysis and then we can plot it all together.
+
+```{r}
+#Oxide <- as.data.frame("Oxide")
+Oxide$Source <- as.factor(Oxide$Source)
+Oxide$Site <- as.factor(Oxide$Site)
+Oxide$Wafer <- as.factor(Oxide$Wafer)
+```
+
+```{r}
+ggplot(data=Oxide, aes(x=Source,y=Thickness))+geom_boxplot(fill="lightblue",outlier.colour="hotpink")+ geom_jitter(position = position_jitter(width = 0.1,height = 0), alpha = 1/4)
+```
+
+As we can see in the plot there is variability in the thickness distribution between the two sources.We can see that Source 1 has a more concentrated distribution, with a median that is below 2000. Next, the distribution of the wafer thickness from Source 2 is much more disperse distribution, as the box of the boxplot is much bigger. We see that the median is very close (but a bit larger) to 2000. So, we see that the variability is bigger in source 2, but it is clear that the distributions are different in both sources and thus, it seems a good idea control for this variability.
+
+Now, we can plot the thickness vs. Site
+
+```{r}
+ggplot(data=Oxide, aes(x=Site,y=Thickness))+geom_boxplot(fill="lightblue",outlier.colour="hotpink")+ geom_jitter(position = position_jitter(width = 0.1,height = 0), alpha = 1/4)
+```
+
+Here, even though the distributions have different medians, they look very similar in how concentrated they are. 
+
+Now, let´s plot thickness vs. wafer
+
+```{r}
+ggplot(data=Oxide, aes(x=Wafer,y=Thickness))+geom_boxplot(fill="lightblue",outlier.colour="hotpink")+ geom_jitter(position = position_jitter(width = 0.1,height = 0), alpha = 1/4)
+```
+
+Again, we see that the three distributions are not exactly the same, but are not so different at all. The three have a median that is lower than 2000 and the sizes of the box seem different but not extremely different, so they are more or less distributed similar.
+
+
+Finally, we can plot all the observations, given the different factors:
+
+```{r}
+ggplot(data=Oxide, aes(x=Wafer,y=Thickness,color = Lot))+geom_point(aes(shape=Source))+geom_path(aes(color=Source,group=Site))
+```
+
+As we can see in this plot, it seems that the wafers coming from source 2 get a higher level of thickness, although not in every case.
+
+As we will be intending to fit a mixed linear model, we first want to know if the target variable behaves normal. 
+
+```{r}
+# Kernel Density Plot
+d <- density(Oxide$Thickness) # returns the density data
+plot(d) # plots the results
+```
+
+We see that even if the distribution looks a bit skewed to the right, it still seems a good idea to fit a linear model. We could consider to run a general linear mixed model with a poisson family distribution, as we know that the thickness can not be negative and in the dataset, we only have integer values.
+
+Now, let´s try and fit a model. To begin with this procedure, let´s first try the simplest model, without mixed effect. A linear model would be:
+
+```{r}
+fit_1 <- lm(data=Oxide, Thickness ~ Source + Wafer + Site + Lot)
+summary(fit_1)
+plot(fit_1)
+```
+
+First, we can see that we have a significant intercept, next to a couple of significant lots. According to this first model, most of our factors are not really significant. But just at looking at the residual plots, we can see that some assumptions do not hold, such as constant variance. So it is a good idea to try a mixed linear model. 
+
+We could also assume interactions, but as there are no continuous explanatory variables and interpreting interactions between categorical variables is harder, we will leave it aside. Anyway, we already know we need to build a mixed linear model.
+
+Let´s first try a model with random intercepts. As we have 2 random effects (wafer and lots) and we can consider them as a nested random effect (we also would like to account for the variability between wafers between lots:
+
+```{r}
+#model1 <- lmer(drywt ~ Inoc + (1|Cult) + (1|Block), data = data)
+fit_3 =lmer(Thickness ~ Source + Site +(1|Lot/Wafer), data = Oxide)
+summary(fit_3)
+```
+
+What can we say about this? First, let´s remember that we built a model with nested random effects, meaning that we want to know if the heterogeneity between wafers is different between lots. we have a different ourput for random and fixed effects. 
+
+```{r}
+qqmath(ranef( fit_3 , condVar = TRUE ))$Lot
+qqmath (ranef( fit_3 , condVar = TRUE ))$Wafer
+```
+
+As we can see, both random effects seem to behave normal. Let´s test if the random effects are neccesary or not:
+
+```{r}
+multi_NULL = lm( Thickness ~ Source + Site , data = Oxide)
+test = -2* logLik (multi_NULL , REML = T ) + 2* logLik ( fit_3 , REML = T )
+mean ( pchisq ( test , df= c (0 ,1) , lower.tail = F ))
+```
+
+As we can see, using the Likelihood ratio test, we can see that the random effects have to be accounted for and obviously introduced in the model. We can also check it without any explanatory variable, in case the introduction of thee variables are getting us to an incorrect conclusion.
+
+```{r}
+multi_NULL = lm( Thickness ~ 1 , data = Oxide)
+fit_4 =lmer(Thickness ~ 1 +(1|Lot/Wafer), data = Oxide)
+test = -2* logLik (multi_NULL , REML = T ) + 2* logLik ( fit_4 , REML = T )
+mean ( pchisq ( test , df= c (0 ,1) , lower.tail = F ))
+```
+
+Again, same results: the random effects are neccesary.
+
+We can then test what happens when we start adding our fixed effects:
+
+```{r}
+fit_5=lmer(Thickness ~ Source +(1|Lot/Wafer), data = Oxide)
+anova(fit_4,fit_5)
+```
+
+As we can see, the ANOVA says that we should not include the variable "Source" as a fix effect. This is surprising, and may be answering the whole question indeed: if source is not statisticaly significant to asses the thickness in wafers, then it means there is not a sistematical difference between the two sources.
+
+We could see that at the boxplot we saw at the beggining of the exercise, where there were not big differences between the thickness distribution in each source.
+
+Even though we said we were only interested in the lots as much as they say something about the population, and thus we treated it as a fixed effect when checking the boxplot we see some partiularity:
+
+```{r}
+ggplot(data=Oxide, aes(x=Lot,y=Thickness))+geom_boxplot(fill="lightblue",outlier.colour="hotpink")+ geom_jitter(position = position_jitter(width = 0.1,height = 0), alpha = 1/4)
+```
+
+The mean response is different depending on the lot: as there a very different median for each lot and their distributions hold very different variances. So it would actually be a good idea to treat them as a fixed effect, instead of a random effect. 
+
+```{r}
+fit_10=lmer(Thickness ~ Site +(1|Lot/Wafer), data = Oxide)
+anova(fit_4,fit_10)
+```
+As we can see, there is no need of adding this fixed effect either.
+
+This way we can conclude that it seems that the best model, taking "lot" and "wafer" as random nested effects, we do not have to include any fixed effect. We only have intercepts. Let´s check our final model:
+
+```{r}
+summary(fit_4)
+```
+
+As we can see the main part of the variability between the thickness of wafers is determined by the lot they come from, and the wafer itself is also important. As fixed effect, we only get an intercept, as we have no covariates that explain the thickness of the wafers.
+
+Checking the model assumptions:
+
+```{r}
+plot(fit_4)
+```
+
+As we can see the variance seems to be constant across the residuals.
+
+```{r}
+qqnorm(resid(fit_4))
+```
+
+As we can see, the residuals behave very close to normal. We can also perform a Wilkin-Shapiro test to test it:
+
+```{r}
+shapiro.test(resid(fit_4))
+```
+
+As the p-value is large, we can not reject the null hypothesis that the residuals behave normal.
+
+We have already checked the assumption of normality in the random effect. 
+
+
+# Exercise 5
+
+```{r}
+data <- read.table("eating.txt",header = TRUE)
+data$group <- as.factor(data$group)
+data$subject <- as.factor(data$subject)
+head(data)
+summary(data)
+```
+As we can see, we have 4 different variables. Let´s plot the control and patient group separetly, so that we can see some (in this case 20 subjects from each group) subjects and their log.exercise while they were growing up.
+
+```{r}
+pat <- with(data, sample(unique(subject[group=="patient"]), 20))
+Pat.20 <- groupedData(log.exercise ~ age | subject,
+data=data[is.element(data$subject, pat),])
+con <- with(data, sample(unique(subject[group=="control"]), 20))
+Con.20 <- groupedData(log.exercise ~ age | subject,
+data=data[is.element(data$subject, con),])
+print(plot(Con.20, main="Control Subjects",
+xlab="Age", ylab="log2 Exercise",
+ylim=1.2*range(Con.20$log.exercise, Pat.20$log.exercise),
+layout=c(5, 4), aspect=1.0),
+position=c(0, 0, 0.5, 1), more=TRUE)
+print(plot(Pat.20, main="Patients",
+xlab="Age", ylab="log2 Exercise",
+ylim=1.2*range(Con.20$log.exercise, Pat.20$log.exercise),
+layout=c(5, 4), aspect=1.0),
+position=c(0.5, 0, 1, 1))
+```
+
+As we can see here, we have plotted the log exercise for both groups: the Control subjects, and the patients. It is important to say that the clusters in this longitudinal data problem is determined by "subject", and not by "group". 
+
+```{r}
+ggplot(data , aes ( y =log.exercise , x = age , color = group )) +
+geom_point(aes( shape = group )) + geom_line ( aes ( group = subject ))
+```
+
+At a first glance, we can not see any big distinction between the different groups with respect to the log-exercise variable. 
+
+Part i)
+
+Now, let´s run regressions of log.exercise to age, for each subject of the sample.
+In order to do this, I will substract 8 units to "age" to make it the origin of the observations. This way, the intercept can represent the value of log.exercise at the beggining of the study. This approach will be followed during the whole exercise.
+
+```{r}
+mod1 <- lme(log.exercise ~ I(age - 8) , random =~1| subject, data=data)
+summary(mod1)
+VarCorr(mod1)
+```
+
+```{r}
+coef <- coef(mod1)
+hist(coef[,1])
+boxplot(coef[,1],main = "Intercepts")
+```
+
+As we can see, first we can say that the coefficients seem to be behaving following a gaussian structure. The median is at zero, and the structure of the distribution looks centered (although maybe it is a bit skewed to the right). 
+By checking the boxplot, we can not say much more. So, maybe it is a good idea to do the same, but dividing the plot (and models) in groups: patients vs. control.
+
+```{r}
+mod_pat <- lmList(log.exercise ~ I(age - 8) | subject, subset = group=="patient", data=data)
+mod_con <- lmList(log.exercise ~ I(age - 8) | subject, subset = group=="control", data=data)
+pat.coef <- coef(mod_pat)
+con.coef <- coef(mod_con)
+
+old <- par(mfrow=c(1, 2))
+boxplot(pat.coef[,1], con.coef[,1], main="Intercepts", names=c("Patients", "Controls"))
+boxplot(pat.coef[,2], con.coef[,2], main="Slopes", names=c("Patients", "Controls"))
+par(old)
+```
+
+Now that we have run a regression of log-exercise on age, we can see that in the case of the control groups, the median of both slopes and intercepts are very close to zero. While in the case of the "patients" group the intercept median is lower than zero (as we said before, it reflects the initial log.exercise of the experiment). We se that the patients presents a high variability in their distribution, in comparison with the controls (specially, in the case of intercepts).
+
+Part ii)
+
+In order to build a mixed model we need to account for the fixed and random effects. 
+
+
+```{r}
+moddd = lmer ( log.exercise ~ I(age - 8) + (1| subject ) , data = data )
+qqmath(ranef(moddd,condVar=TRUE))$subject
+```
+
+As we can see in the plot, they are more or less aligned to a straight line and thus, we can say they follow a normal distribution. Let´s check if the random effect is significant:
+
+```{r}
+multi_NULL = lm( log.exercise ~1 , data = data )
+test = -2* logLik ( multi_NULL , REML = T ) + 2* logLik ( model2 , REML = T )
+mean(pchisq(test , df= c (0 ,1) , lower.tail = F ))
+```
+
+As we got a very small p-value, we can say that the random effect is significant. Obviuisly, if according to our ICC almost 50% of the variability comes from the heterogeneity between subjects, it is logical that we get a result stating that our random effect is statisticaly significant.
+
+Part ii)
+
+
+What can be said is that as we are trying to study the difference between two groups, the variable "group" will be a fixed effect. 
+To begin with, as we want to account for differences between two different groups (for example, the mean difference between the patients and control subjects), then we can take the factor variable "group" as a fixed effect.
+We can also consider "age" as a fixed effect, as we are not intending to control through its randomness.
+Finally, we can take "subject" as the random effet, because as we just saw in the previous part of the exercise, there is variation across subjects that has to be accounted for, and because we want to do inference on them (we care for the subjects as much as what they have to say about the population).
+
+First, we can try with intercept variation (the lines will be parallel):
+
+```{r}
+lmm1 = lmer (log.exercise ~ age + group + (1| subject ) , data = data )
+summary(lmm1)
+```
+
+```{r}
+fixef(lmm1)
+```
+
+The intercept -2.4678012 is the average log.exercise of the control group with fixed effects.
+We can obtain the intercept taking into account random effect:
+
+```{r}
+rand <- ranef(lmm1)
+rand
+```
+
+This is the deviance of the mean, for each of the subjects. This way, if we acount for the average given by the fixed effect, and the deviation given by the valiarbility of the subjects (in this case the random effect), we will get to the coefficient for each of the subjects.
+
+The fitted lines for the first two subjects are:
+
+```{r}
+g1 = ggplot ( data , aes ( y =log.exercise , x = I(age-8) , color = group )) +
+geom_point ( aes ( shape = group )) +
+geom_line ( aes ( group = subject ))
+g1 + geom_abline ( intercept =59.5 , slope =2.4678012 , color =2 , size =1.2 )
+
+```
+
+Again, it does not seem we can say much about this plot, as it throws a very messy pattern.
+
+We can test if the random effects are needed:
+
+```{r}
+lmm0 =lm(log.exercise ~ group + I(age-8) , data = data )
+test = -2* logLik ( lmm0 ) + 2* logLik ( lmm1 )
+mean ( pchisq ( test ,df= c (0 ,1) , lower.tail = F ))
+```
+
+As we can see, our p-value is very small, so we can reject the null hypothesis and state that our random effect is needed. Now, it is time for us allow the slopes to change, meaning that the rate of exercise will vary for each subject according to the age  (we assume independence between intercepts and slopes). I will also change a bit the model and add an interaction between age and group, so that we can account for the differences better:
+
+```{r}
+lmm2 = lmer (log.exercise ~ group * I(age-8) + ( I(age-8) || subject ) , data = data )
+summary(lmm2)
+```
+
+
+As we can see, the average age trend (represented by the I(age-8) in the fixed effects) seems to be statistically significant. Also, the interaction between group and age is statistialy significant, meaning that there is a steeper trend for the patients of the patient group. As the t-statistic for the variable "group" is small, we can think that the similar intercepts for both groups.
+
+Let´s create more models, adding and substracting difficulty to be able to use ANOVA and analyse what is the best structure for fitting a model to this dataset.
+
+Until now, we have:
+
+```{r}
+#lmm2 random slopes, random intercepts, independance, with interaction
+#lmm1 random intercept, no interaction
+#lmm0 no random effect
+```
+
+Then we need to create the following ones:
+
+```{r}
+# random intercept, random slope, dependance, no interaction
+lmm3= lmer (log.exercise ~ group + I(age-8) + ( I(age-8) | subject ) , data = data )
+# random intercept, random slope, dependance, interaction
+lmm4 = lmer (log.exercise ~ group * I(age-8) + ( I(age-8) | subject ) , data = data )
+# random intercept, interaction
+lmm5 = lmer (log.exercise ~ group + I(age-8) + ( I(age-8) || subject ) , data = data )
+```
+
+Now, we can do comparisons:
+
+#### Model 2 vs. Model 4
+
+```{r}
+anova ( lmm4 , lmm2 )
+```
+
+As we can see, we can assume that the slopes and intercepts are independant.
+
+#### Model 2 vs Model 1b (Model 1 plus interaction)
+
+```{r}
+lmm1b = update ( lmm1 , .~. + I(age-8) : group )
+test = -2* logLik ( lmm1b ) + 2* logLik ( lmm2 )
+mean ( pchisq ( test , df= c (0 ,1) , lower.tail = F ))
+```
+
+As the p-value is very small, we can say we need random intercepts, we need random slopes, and they are independant. Now, we need to test for the fixed effects, given we chose our random effect already.
+
+#### Model 2 vs. Model 5
+
+```{r}
+#lmm5 = update ( lmm5 , method = " ML " )
+#lmm2 = update ( lmm2 , method = " ML " )
+anova ( lmm2 , lmm5 )
+```
+
+As we can see, we have a very small value, implying that we have to include the interaction. This way, we have arrived to our best model yet: lmm2 (model with interaction and no dependancy between intercepts and slopes).
+
+```{r}
+#lmm2 = lmer (log.exercise ~ group * I(age-8) + ( I(age-8) || subject ) , data = data )
+```
+
+Now, we refit it with REML:
+
+```{r}
+model.final = update(lmm4 ,"REML"=TRUE)
+model.final
+```
+
+
+This way, we can say that:
+a)The intercept of the patient group is -0.276602 and its slope is -0.35399.
+b) -0.27602 + (-0.35399) is the intercept of the control group.
+c) 0.06402+0.23985 is the slope for the control group.
+
+```{r}
+plot (model.final , log.exercise ~ fitted ( . )| subject , abline = c (0 ,1))
+```
+
+It is a bit hard to get a grasp at this plot, because there are so many subjects. Nevertheless, when doing zoom, we can see that it fits pretty well.
+
+Now, it is time to check some assumptions of the model.
+
+First, let´s check the within subject errors (they have to behave normal and with a mean equal to zero:
+
+```{r}
+plot(model.final)
+```
+
+We can say that in general they are centered around zero. Nevertheless, there is a weird negative trend in some residuals that may worry us. Now, let´s check for normality:
+
+```{r}
+qqnorm(resid( model.final ))
+qqline(resid( model.final ))
+```
+
+As we can see, in most part they behave like a normal, although they may not entirely (in the left part of the plot, the residuals do not fit the 90 degree line).
+
+We can also plot the residuals plot per group and along the age:
+
+```{r}
+plot ( model.final , form = resid ( . ) ~ I(age-8) | group )
+```
+
+We can say that, in general, the range in the residuals is similar, although there may be some differences. They are, for sure, more concentrated between -2 and 2, for both groups. But as the subjects grow, the residuals get more dispersed.
+
+Now, let´s check for random effect:
+
+```{r}
+lmm6 = lme (log.exercise ~ group*I(age-8),random = list ( subject = pdDiag (~ I(age-8) )) ,data = data )
+#lmm4 = lmer (log.exercise ~ group * I(age-8) + ( I(age-8) | subject ) , data = data )
+plot ( ranef ( lmm6 ))
+```
+
+As we can see in the plot, we can not distinguish any pattern whatsoever.
+We can also check the normality assumption with a qqplot. For that, we need to refit the model:
+
+```{r}
+lattice ::dotplot (ranef(model.final))
+```
+
+As we can see, we can draw a straight line for the random effect, thus, we can assume normality.
+Finally, we need to check for slopes and random effects.
+
+```{r}
+model.final.lmer = lmer (log.exercise ~ group + I(age-8) + group*I(age-8) +
+(0 + I(age-8) | subject ) + (1| subject ) , data = data )
+# 0: No intercept and slope only
+# (1| subject ): Intercept
+# So write first the slope and then the intercept
+lattice :: dotplot ( ranef ( model.final.lmer ))
+```
+
+As we can see, we can draw a straight line through the slopes, and thus, we can assume normality.
